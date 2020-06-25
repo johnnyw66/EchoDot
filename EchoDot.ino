@@ -141,20 +141,24 @@ void setup() {
     
     setupEEPROMConfig() ;
     // Update Appliance Names
+    Serial.println("Copying over appliance names stored in EEPROM....") ;
     for(int i = 0 ; i < 4 ; i++) {
-      devices[i].deviceName = String(appliancenames[i]) ;  
+      devices[i].deviceName = String(getApplianceName(i)) ;
     }
-    
-    //wireInit() ;
+
+        
     if (digitalRead(CONFIG_PIN) == 0) {
+      Serial.println("CONFIG MODE") ;
       mode = CONFIGMODE ;  
       setupConfigMode() ;
     } else {
+      Serial.println("FAUXMO MODE") ;
       mode = FAUXMOMODE ;
       setupFauxmoMode() ;
     }
 
 }
+
 
 // -----------------------------------------------------------------------------
 
@@ -168,8 +172,8 @@ void wifiSetup() {
     WiFi.mode(WIFI_STA);
 
     // Connect
-    Serial.printf("[WIFI] Connecting to %s ", WIFI_SSID);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    Serial.printf("[WIFI] Connecting to %s ", getWiFiSSID());
+    WiFi.begin(getWiFiSSID(), getWiFiPassword());
 
     // Wait
     while (WiFi.status() != WL_CONNECTED) {
@@ -190,7 +194,7 @@ void initDevices() {
     int pin = devices[idx].pin ;
     pinMode(pin, OUTPUT);
     digitalWrite(pin, !devices[idx].active_high);
-    Serial.printf("Init Device %s, Pin: %d\n", devices[idx].deviceName, pin);
+    Serial.printf("Init Device %s, Pin: %d\n", devices[idx].deviceName.c_str(), pin);
 
   }
 
@@ -274,7 +278,6 @@ void loop() {
     fauxmoLoop() ;  
   } else {
     configLoop() ;
-    Serial.println("configLoop") ;
   }
 }
 
@@ -301,7 +304,7 @@ void fauxmoLoop() {
 
 }
 
-
+// Config Code From here onwards
 String buildString(const String baseStr,...) {
   va_list ap;
   va_start(ap, baseStr);
@@ -323,6 +326,13 @@ String buildString(const String baseStr,...) {
     
 }
 
+char *getWiFiSSID() {
+  return e_ssid ;
+}
+
+char *getWiFiPassword() {
+  return e_password ;
+}
 
 char *getApplianceName(int index) {
   return appliancenames[index] ;
