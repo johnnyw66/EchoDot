@@ -42,6 +42,8 @@ fauxmoESP fauxmo;
 #define APPLIANCE3_PIN           33
 #define APPLIANCE4_PIN           27
 #define CONFIG_PIN               14
+
+#define STATUS_PIN               12  
 #endif 
 
 #ifdef _ESP_DOIT
@@ -51,6 +53,9 @@ fauxmoESP fauxmo;
 #define APPLIANCE3_PIN            13
 #define APPLIANCE4_PIN            15
 #define CONFIG_PIN                 1
+
+#define STATUS_PIN               12  
+
 #endif 
 
 
@@ -128,11 +133,14 @@ char *appliancenames[] = {
     e_appliance4
 } ;
 
+int mode_indicator = LOW ;
 
 void setup() {
   // CONFIG PIN
     pinMode(CONFIG_PIN, INPUT_PULLUP);
-
+    pinMode(STATUS_PIN, OUTPUT);
+    digitalWrite(STATUS_PIN,mode_indicator) ;
+    
     // Init serial port and clean garbage
 
     Serial.begin(SERIAL_BAUDRATE);
@@ -279,6 +287,7 @@ void loop() {
   } else {
     configLoop() ;
   }
+
 }
 
 
@@ -296,6 +305,8 @@ void fauxmoLoop() {
     if (millis() - last > 5000) {
         last = millis();
         Serial.printf("[MAIN] Free heap: %d bytes\n", ESP.getFreeHeap());
+        mode_indicator = ~mode_indicator ;
+        digitalWrite(STATUS_PIN, mode_indicator) ;
     }
 
     // If your device state is changed by any other means (MQTT, physical button,...)
@@ -687,7 +698,14 @@ void handleRootGet() {
 void configLoop() {
   dnsServer.processNextRequest();
   server.handleClient() ;
-  //wireScanClient() ;
+
+  static unsigned long last = millis();
+  if (millis() - last > 500) {
+        last = millis();
+        //Serial.printf("[CONFIG MAIN LOOP] Free heap: %d bytes\n", ESP.getFreeHeap());
+        mode_indicator = ~mode_indicator ;
+        digitalWrite(STATUS_PIN, mode_indicator) ;
+  }
 }
 
 
