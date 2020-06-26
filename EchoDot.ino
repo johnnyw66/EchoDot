@@ -14,6 +14,8 @@
 #include "credentials.h"
 #include <Wire.h>
 
+#include "Display.h"
+
 // EEPROM SDA/SCL PINS (24C256L)
 
 #define SDAPIN  23
@@ -43,7 +45,7 @@ fauxmoESP fauxmo;
 #define APPLIANCE4_PIN           27
 #define CONFIG_PIN               14
 
-#define STATUS_PIN               12  
+#define STATUS_PIN               19  
 #endif 
 
 #ifdef _ESP_DOIT
@@ -154,6 +156,7 @@ void setup() {
       devices[i].deviceName = String(getApplianceName(i)) ;
     }
 
+    initDisplay(1) ;
         
     if (digitalRead(CONFIG_PIN) == 0) {
       Serial.println("CONFIG MODE") ;
@@ -164,6 +167,9 @@ void setup() {
       mode = FAUXMOMODE ;
       setupFauxmoMode() ;
     }
+
+   testText() ; 
+    
 
 }
 
@@ -290,6 +296,7 @@ void loop() {
 
 }
 
+int counter = 0 ;
 
 void fauxmoLoop() {
 
@@ -307,6 +314,9 @@ void fauxmoLoop() {
         Serial.printf("[MAIN] Free heap: %d bytes\n", ESP.getFreeHeap());
         mode_indicator = ~mode_indicator ;
         digitalWrite(STATUS_PIN, mode_indicator) ;
+        char buff[32] ;
+        sprintf(buff,"Counter %04d\n",counter++) ;
+        statusmessage(buff) ;
     }
 
     // If your device state is changed by any other means (MQTT, physical button,...)
