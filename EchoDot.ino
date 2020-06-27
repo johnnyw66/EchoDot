@@ -39,17 +39,20 @@ fauxmoESP fauxmo;
 
 #ifdef _ESP_HUZZAH32
 #define LED_APPLIANCE_PIN        13
+#define TFT_APPLIANCE_PIN        25
 #define APPLIANCE1_PIN           32
 #define APPLIANCE2_PIN           15
 #define APPLIANCE3_PIN           33
 #define APPLIANCE4_PIN           27
 #define CONFIG_PIN               14
 
-#define STATUS_PIN               19  
+#define STATUS_PIN               26   // A0    
+#define BACKLIGHT_PIN            25   // A1
 #endif 
 
 #ifdef _ESP_DOIT
 #define LED_APPLIANCE_PIN         2
+#define TFT_APPLIANCE_PIN        25
 #define APPLIANCE1_PIN            5
 #define APPLIANCE2_PIN            0
 #define APPLIANCE3_PIN            13
@@ -57,6 +60,7 @@ fauxmoESP fauxmo;
 #define CONFIG_PIN                 1
 
 #define STATUS_PIN               12  
+#define BACKLIGHT_PIN            25   
 
 #endif 
 
@@ -64,10 +68,12 @@ fauxmoESP fauxmo;
 typedef struct _devicePair {
   String deviceName;
   int pin ;
+  bool state ;
   bool active_high ;
 } DEVICE ;
 
-#define LED_APPLIANCE           "ELLEEDEE"
+#define LED_APPLIANCE           "Debug"
+#define TFT_APPLIANCE           "Config Panel"
 
 // Set these to your desired credentials.
 #define CONFIG_SSID "ESP-CONFIG"
@@ -79,14 +85,16 @@ typedef struct _devicePair {
 #define DEFAULT_APPLIANCE3_NAME "APPLIANCE 3" 
 #define DEFAULT_APPLIANCE4_NAME "APPLIANCE 4" 
 
-#define ACTIVE_HIGH          false
+#define ACTIVE_LOW          false
+#define ACTIVE_HIGH          true
 
 DEVICE devices[] = {
-              {DEFAULT_APPLIANCE1_NAME, APPLIANCE1_PIN, ACTIVE_HIGH},
-              {DEFAULT_APPLIANCE2_NAME, APPLIANCE2_PIN, ACTIVE_HIGH},
-              {DEFAULT_APPLIANCE3_NAME, APPLIANCE3_PIN, ACTIVE_HIGH},
-              {DEFAULT_APPLIANCE4_NAME, APPLIANCE4_PIN, ACTIVE_HIGH},
-              {LED_APPLIANCE, LED_APPLIANCE_PIN, !ACTIVE_HIGH}
+              {DEFAULT_APPLIANCE1_NAME, APPLIANCE1_PIN, false, ACTIVE_LOW},
+              {DEFAULT_APPLIANCE2_NAME, APPLIANCE2_PIN, false, ACTIVE_LOW},
+              {DEFAULT_APPLIANCE3_NAME, APPLIANCE3_PIN, false, ACTIVE_LOW},
+              {DEFAULT_APPLIANCE4_NAME, APPLIANCE4_PIN, false, ACTIVE_LOW},
+              {LED_APPLIANCE, LED_APPLIANCE_PIN, false, ACTIVE_HIGH},
+              {TFT_APPLIANCE, TFT_APPLIANCE_PIN, true, ACTIVE_HIGH}
              } ;
 
 #define OFF_STATE HIGH 
@@ -117,6 +125,9 @@ DNSServer dnsServer;
 #define EEPROM_APPLIANCE2_ADDRESS 192
 #define EEPROM_APPLIANCE3_ADDRESS 256
 #define EEPROM_APPLIANCE4_ADDRESS 320
+
+#define EEPROM_DISPMODE_ADDRESS   384 
+
 
 #define MAXSTRLEN 30
 
@@ -156,7 +167,7 @@ void setup() {
       devices[i].deviceName = String(getApplianceName(i)) ;
     }
 
-    initDisplay(1) ;
+    initDisplay(DEFAULT_ROTATION,BACKLIGHT_PIN) ;
         
     if (digitalRead(CONFIG_PIN) == 0) {
       Serial.println("CONFIG MODE") ;
@@ -169,10 +180,13 @@ void setup() {
     }
 
    testText() ; 
-    
+   delay(3000) ;
 
 }
 
+
+
+bool dirty = true ;
 
 // -----------------------------------------------------------------------------
 
@@ -207,7 +221,8 @@ void initDevices() {
   for(int idx = 0 ; idx < sizeof(devices)/sizeof(_devicePair) ; idx++) {
     int pin = devices[idx].pin ;
     pinMode(pin, OUTPUT);
-    digitalWrite(pin, !devices[idx].active_high);
+    //digitalWrite(pin, !devices[idx].active_high);
+    digitalWrite(pin, devices[idx].state ? devices[idx].active_high : !devices[idx].active_high);
     Serial.printf("Init Device %s, Pin: %d\n", devices[idx].deviceName.c_str(), pin);
 
   }
@@ -221,6 +236,7 @@ bool searchAndSetDevice(const char *deviceName,bool state, unsigned char value) 
     for(int idx = 0 ; idx < sizeof(devices)/sizeof(_devicePair) ; idx++) {
 
       if (devices[idx].deviceName.equals(deviceName)) {
+        devices[idx].state = state ;
         digitalWrite(devices[idx].pin, state ? devices[idx].active_high : !devices[idx].active_high);
         return true ;
       }
@@ -274,7 +290,7 @@ void fauxmoSetup() {
         // If you have to do something more involved here set a flag and process it in your main loop.
         
         Serial.printf("!!!![MAIN] Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
-
+        dirty = true ;
         // Checking for device_id is simpler if you are certain about the order they are loaded and it does not change.
         // Otherwise comparing the device_name is safer.
         searchAndSetDevice(device_name, state, value) ;
@@ -296,7 +312,6 @@ void loop() {
 
 }
 
-int counter = 0 ;
 
 void fauxmoLoop() {
 
@@ -309,14 +324,16 @@ void fauxmoLoop() {
     // This is a sample code to output free heap every 5 seconds
     // This is a cheap way to detect memory leaks
     static unsigned long last = millis();
-    if (millis() - last > 5000) {
+    if (millis() - last > 5000 || dirty) {
         last = millis();
         Serial.printf("[MAIN] Free heap: %d bytes\n", ESP.getFreeHeap());
         mode_indicator = ~mode_indicator ;
         digitalWrite(STATUS_PIN, mode_indicator) ;
-        char buff[32] ;
-        sprintf(buff,"Counter %04d\n",counter++) ;
-        statusmessage(buff) ;
+
+        if (dirty) {
+            displayDeviceStatus() ;
+            dirty = false ;
+        }
     }
 
     // If your device state is changed by any other means (MQTT, physical button,...)
@@ -324,6 +341,25 @@ void fauxmoLoop() {
     // fauxmo.setState(ID_YELLOW, true, 255);
 
 }
+
+void displayDeviceStatus() {
+  char sbuff[64] ;
+  
+  displayClear() ;
+
+  displayMessage(" *** DEVICE STATUS ***", 4, 10) ;    
+  
+  
+  for(int idx = 0 ; idx < sizeof(devices)/sizeof(_devicePair) ; idx++) {
+    bool state = devices[idx].state  ;
+    sprintf(sbuff,"%s",(char *)devices[idx].deviceName.c_str()) ;
+    displayMessage(sbuff, 4, 10 + 40 + idx * 24) ;    
+    sprintf(sbuff,"%s",(devices[idx].state ? "ON" : "OFF")) ;
+    displayMessage(sbuff, 192 + 4, 10 + 40 + idx * 24) ;    
+  }
+  
+}
+
 
 // Config Code From here onwards
 String buildString(const String baseStr,...) {
@@ -358,6 +394,11 @@ char *getWiFiPassword() {
 char *getApplianceName(int index) {
   return appliancenames[index] ;
 }
+
+void retrieveEEPROMInt(unsigned int eeaddress, int *val) {
+  
+}
+
 void retrieveEEPROMString(unsigned int eeaddress, char *appname, int maxstrlen) {
   
   Serial.print("String @(") ;
@@ -380,6 +421,8 @@ void setupConfigMode() {
 
 }
 
+int backLightValue ;
+
 void setupEEPROMConfig()
 {
   
@@ -394,8 +437,10 @@ void setupEEPROMConfig()
   retrieveEEPROMString(EEPROM_APPLIANCE3_ADDRESS,e_appliance3,MAXSTRLEN) ;
   retrieveEEPROMString(EEPROM_APPLIANCE4_ADDRESS,e_appliance4,MAXSTRLEN) ;
 
+  retrieveEEPROMInt(EEPROM_DISPMODE_ADDRESS,&backLightValue) ;
 
   Serial.println("Credential and Appliances EE Reading Completed") ;
+  Serial.println(backLightValue) ;
 }
 
 
@@ -710,14 +755,43 @@ void configLoop() {
   server.handleClient() ;
 
   static unsigned long last = millis();
-  if (millis() - last > 500) {
+  if (millis() - last > 500 || dirty) {
         last = millis();
         //Serial.printf("[CONFIG MAIN LOOP] Free heap: %d bytes\n", ESP.getFreeHeap());
         mode_indicator = ~mode_indicator ;
         digitalWrite(STATUS_PIN, mode_indicator) ;
+        if (dirty) {
+          displayConfigStatus() ;
+          dirty = false ;
+        }
   }
 }
 
+void displayConfigStatus() {
+  char sbuff[64] ;
+  
+  displayClear() ;
+
+  displayMessage("CONFIG AP CREDENTIALS", 4, 10) ;    
+  displayMessage("SSID: ", 4, 10 + 2*24) ;
+  displayMessage((char *)configSSID, 4 + 128, 10 + 2*24) ;
+
+  displayMessage("PASSWORD: ", 4, 10 + 3*24) ;
+  displayMessage((char *)configPassword, 4 + 128, 10 + 3*24) ;   
+
+  setTextSize(1) ;
+  displayMessage("Connect to Config Access Point above", 4, 10 + 5*24 + 0*10) ;
+  displayMessage("and open your browser.", 4, 10 + 5*24 + 1*10) ;
+
+  displayMessage("set the mode link to 'normal' when", 4, 10 + 5*24 + 3*10) ;
+  displayMessage("completed.", 4, 10 + 5*24 + 4*10) ;
+
+
+}
+
+// Using External EEPROM SDA on ESP32 goes to PIN 5 on 24C256, SCL on ESP32 goes to Pin 6 on 24C256
+// PIN 7 on 24C256 is tied to GND
+// 24C256 I2C address lines are held 'LOW' with internal PDs (making their address 0x50) 
 
 void wireScanClient() {
   byte error, address;
@@ -751,6 +825,9 @@ void wireScanClient() {
   }
   delay(5000);          
 }
+
+
+ 
 
 void clearEEPROMString(unsigned int eeaddress) {
      
@@ -829,7 +906,17 @@ void writeEEPROM(int deviceaddress, unsigned int eeaddress,  char* data)
      delay(6);  // needs 5ms for page write
   }
 }
- 
+
+
+void readEEPROM(int deviceaddress, unsigned int eeaddress, int *data) {
+  Wire.beginTransmission(deviceaddress);
+  Wire.write((int)(eeaddress >> 8));   // MSB
+  Wire.write((int)(eeaddress & 0xFF)); // LSB
+  Wire.endTransmission();
+  int val = (int)Wire.read() ;
+  *data = val ;
+}
+
 void readEEPROM(int deviceaddress, unsigned int eeaddress,  
                   char* data, unsigned int num_chars) 
 {

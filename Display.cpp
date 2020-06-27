@@ -2,25 +2,25 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 
+#include "Display.h"
 
-// Display
-
-#define TFT_MISO    19      // NC
-#define TFT_MOSI    18      // GREY
-#define TFT_CLK     5       // PURPLE
-#define TFT_DC      4       // BLUE
-#define TFT_CS      21      // GREEN
-#define TFT_RST     12      // YELLOW
 
 //PIN RELAY CONTROLS 32,15,33,27
 // PIN MODE INDICATOR 14 
-#define DEFAULT_ROTATION 1
 
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST, TFT_MISO);
 
-void initDisplay(int rotation) {
-  tft.begin();
+int backLightPin ;
 
+void initDisplay(int rotation, int blPin) {
+  
+  backLightPin = blPin ;
+  pinMode(backLightPin, OUTPUT);
+
+  tft.begin();
+  setBackLight(HIGH) ;
+  
+    
   // read diagnostics (optional but can help debug problems)
   uint8_t x = tft.readcommand8(ILI9341_RDMODE);
   Serial.print("Display Power Mode: 0x"); Serial.println(x, HEX);
@@ -35,12 +35,30 @@ void initDisplay(int rotation) {
   tft.setRotation(rotation);
 
 }
-void statusmessage(char *str) {
-    tft.fillScreen(ILI9341_BLACK);
-    tft.setCursor(0, 0);
-    tft.setTextColor(ILI9341_RED);  tft.setTextSize(3);
-    tft.println(str);
 
+void setBackLight(int val) {
+   digitalWrite(backLightPin, val);
+}
+void displayClear() {
+    tft.fillScreen(ILI9341_WHITE);
+    setTextSize(2);
+}
+void setTextSize(int sz) {
+     tft.setTextSize(sz);
+}
+void displayMessage(char *str, int x, int y) {
+    tft.setCursor(x, y);
+    tft.setTextColor(ILI9341_BLACK);  
+    tft.print(str);
+}
+void displayMessage(char *str, int x, int y, int col) {
+    tft.setCursor(x, y);
+    tft.setTextColor(col);  
+    tft.print(str);
+}
+void statusmessage(char *str) {
+    displayClear() ;
+    displayMessage(str, 0, 0) ;
 }
 
 unsigned long testText() {
