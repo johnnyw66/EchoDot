@@ -6,6 +6,9 @@
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 
+#include "Syslog.h"
+
+
 // Johnny 2020 - Compile with HELTEC ESP  2020 Libraries rather than feather
 
 
@@ -127,6 +130,7 @@ DNSServer dnsServer;
 #define EEPROM_APPLIANCE4_ADDRESS 320
 
 #define EEPROM_DISPMODE_ADDRESS   384 
+#define EEPROM_SYSLOGSVR_ADDRESS      448 
 
 
 #define MAXSTRLEN 30
@@ -138,6 +142,7 @@ char e_appliance1[MAXSTRLEN];
 char e_appliance2[MAXSTRLEN];
 char e_appliance3[MAXSTRLEN];
 char e_appliance4[MAXSTRLEN];
+char e_syslogserver[MAXSTRLEN] ;
 
 char *appliancenames[] = {
     e_appliance1,
@@ -148,8 +153,26 @@ char *appliancenames[] = {
 
 int mode_indicator = LOW ;
 
+
+
+int iteration = 0;
+
+#define SYSLOG_SERVER "syslog-server"     // Note: I added DNS entry into my router with this name.
+                                          // Pointed to a DOCKER 'syslog server' container 
+                                          //
+                
+#define DEFAULT_SYSLOG_SERVER "127.0.0.1"
+#define SYSLOG_PORT 514
+
+// This device info
+#define DEVICE_HOSTNAME "ESP32"
+#define APP_NAME "EchoDot"
+WiFiUDP udpClient;
+Syslog *syslog ; 
+
 void setup() {
   // CONFIG PIN
+
     pinMode(CONFIG_PIN, INPUT_PULLUP);
     pinMode(STATUS_PIN, OUTPUT);
     digitalWrite(STATUS_PIN,mode_indicator) ;
@@ -166,6 +189,12 @@ void setup() {
     for(int i = 0 ; i < 4 ; i++) {
       devices[i].deviceName = String(getApplianceName(i)) ;
     }
+   
+   //syslog = new Syslog(udpClient, DEFAULT_SYSLOG_SERVER, SYSLOG_PORT, DEVICE_HOSTNAME, APP_NAME, LOG_KERN);
+   syslog = new Syslog(udpClient, e_syslogserver, SYSLOG_PORT, DEVICE_HOSTNAME, APP_NAME, LOG_KERN);
+
+    Serial.print("Syslog Server : ") ;
+    Serial.println(e_syslogserver) ;
 
     initDisplay(DEFAULT_ROTATION,BACKLIGHT_PIN) ;
         
@@ -290,6 +319,8 @@ void fauxmoSetup() {
         // If you have to do something more involved here set a flag and process it in your main loop.
         
         Serial.printf("!!!![MAIN] Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
+        syslog->logf(LOG_INFO,"!!!![MAIN] Device #%d (%s) state: %s value: %d", device_id, device_name, state ? "ON" : "OFF", value);
+    
         dirty = true ;
         // Checking for device_id is simpler if you are certain about the order they are loaded and it does not change.
         // Otherwise comparing the device_name is safer.
@@ -313,6 +344,28 @@ void loop() {
 }
 
 
+
+void syslogloop() {
+  // Severity levels can be found in Syslog.h. They are same like in Linux 
+  // syslog.
+  syslog->log(LOG_INFO, "Begin loop");
+
+  // Log message can be formated like with printf function.
+  syslog->logf(LOG_ERR,  "This is error message no. %d", iteration);
+  syslog->logf(LOG_INFO, "This is info message no. %d", iteration);
+
+  // You can force set facility in pri parameter for this log message. More 
+  // facilities in syslog.h or in Linux syslog documentation.
+    syslog->logf(LOG_DAEMON | LOG_INFO, "This is daemon info message no. %d", 
+    iteration);
+
+  // F() macro is supported too
+  syslog->log(LOG_INFO, F("End loop"));
+  iteration++;
+  
+}
+
+
 void fauxmoLoop() {
 
 #ifdef _FAUXMO
@@ -327,6 +380,9 @@ void fauxmoLoop() {
     if (millis() - last > 5000 || dirty) {
         last = millis();
         Serial.printf("[MAIN] Free heap: %d bytes\n", ESP.getFreeHeap());
+        syslog->logf(LOG_INFO,"[MAIN] Free heap: %d bytes.", ESP.getFreeHeap());
+        
+        
         mode_indicator = ~mode_indicator ;
         digitalWrite(STATUS_PIN, mode_indicator) ;
 
@@ -438,6 +494,7 @@ void setupEEPROMConfig()
   retrieveEEPROMString(EEPROM_APPLIANCE4_ADDRESS,e_appliance4,MAXSTRLEN) ;
 
   retrieveEEPROMInt(EEPROM_DISPMODE_ADDRESS,&backLightValue) ;
+  retrieveEEPROMString(EEPROM_SYSLOGSVR_ADDRESS,e_syslogserver,MAXSTRLEN) ;
 
   Serial.println("Credential and Appliances EE Reading Completed") ;
   Serial.println(backLightValue) ;
@@ -446,9 +503,13 @@ void setupEEPROMConfig()
 
 void resetEEPROM() {
   setDefaultRouterWiFiCredentialsEEPROM() ;
+  setDefaultSyslogServerEEPROM() ;
   setDefaultApplianceNamesEEPROM() ;
 }
 
+void setDefaultSyslogServerEEPROM(){
+  updateEEPROMString(e_syslogserver,DEFAULT_SYSLOG_SERVER, EEPROM_SYSLOGSVR_ADDRESS) ;
+}
 void setDefaultRouterWiFiCredentialsEEPROM() {
   updateEEPROMString(e_ssid,"YOUR ROUTER SSID", EEPROM_SSID_ADDRESS) ;
   updateEEPROMString(e_password,"YOUR ROUTER PASSWORD", EEPROM_PASSWORD_ADDRESS) ;
@@ -544,6 +605,9 @@ void setupConfigServer() {
   server.on("/status", HTTP_GET, handleStatusGet);
   server.on("/status", HTTP_POST, handleStatusGet);
 
+  server.on("/syslog", HTTP_GET, handleSyslogGet);
+  server.on("/syslog", HTTP_POST, handleSyslogPost);
+  
   server.onNotFound(handleNotFound);
   
   server.begin();
@@ -565,6 +629,7 @@ void updateEEPROMString( char *buff, String value, unsigned int eeaddress) {
 }
 String links = F("<p><a href='/wifi'>Configure the WiFi connection</a></p>"
              "<p><a href='/appliances'>Set up appliance names</a></p>"
+             "<p><a href='/syslog'>Set up Syslog (Admin)</a></p>"
              "<p><a href='/status'>Status</a></p>"
              ) ;
 
@@ -603,10 +668,56 @@ String appliancesForm = "<form action=\"/appliances\" method=\"POST\">"
                     "<input type=\"submit\" value=\"SetUp\">"
                     "</form><p>Appliance names used by your Echo Dot</p>";
 
+String syslogForm = "<form action=\"/syslog\" method=\"POST\">"
+                    "<input type=\"text\" name=\"syslogserver\" placeholder=\"127.0.0.1\" value=\"$1\"></br>"
+                    "<input type=\"submit\" value=\"SetUp\">"
+                    "</form><p>Appliance names used by your Echo Dot</p>";
+                    
+
 void setPageHeader() {
   server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   server.sendHeader("Pragma", "no-cache");
   server.sendHeader("Expires", "-1");
+
+}
+
+void handleSyslogPost() {
+
+  setPageHeader() ;
+    
+  if( !server.hasArg("syslogserver") || server.arg("syslogserver") == NULL)
+  { 
+    server.send(400, "text/plain", "400: Invalid Request");         // The request is invalid, so send HTTP status 400
+    return;
+  }
+
+  Serial.println("Saving Syslog Server") ;
+  
+  updateEEPROMString(e_syslogserver, server.arg("syslogserver"), EEPROM_SYSLOGSVR_ADDRESS) ;
+  
+  String page ;
+  page += header ;
+  page += F("<h1>SysLog Server Set</h1>");
+ 
+  page += links ;
+  page += endBody ;
+
+  server.send(200, "text/html",page) ;
+ 
+}
+void handleSyslogGet() {
+  setPageHeader() ;
+  
+  String page ;
+
+  page += header ;
+  page += F("<h1>Syslog Server</h1>");
+
+  page += buildString(syslogForm, e_syslogserver, NULL).c_str() ;
+
+  page += links ;
+  page += endBody ;        
+  server.send(200, "text/html",page) ;
 
 }
 
@@ -678,10 +789,13 @@ String settingsPage = "<p>WiFi : $1 </p>"
                       "<p>Appliance 1 : $3 </p>"
                       "<p>Appliance 2 : $4 </p>"
                       "<p>Appliance 3 : $5 </p>"
-                      "<p>Appliance 4 : $6 </p>" ;
+                      "<p>Appliance 4 : $6 </p>" 
+                      "<p>Syslog Server : $7 </p>"  ;
+                      
+                      
 
 String buildSettingsPage() {
-    return buildString(settingsPage, e_ssid, e_password, e_appliance1, e_appliance2, e_appliance3, e_appliance4,NULL) ;
+    return buildString(settingsPage, e_ssid, e_password, e_appliance1, e_appliance2, e_appliance3, e_appliance4,e_syslogserver,NULL) ;
 }
 
 void handleRootPost() {
@@ -779,12 +893,15 @@ void displayConfigStatus() {
   displayMessage("PASSWORD: ", 4, 10 + 3*24) ;
   displayMessage((char *)configPassword, 4 + 128, 10 + 3*24) ;   
 
-  setTextSize(1) ;
-  displayMessage("Connect to Config Access Point above", 4, 10 + 5*24 + 0*10) ;
-  displayMessage("and open your browser.", 4, 10 + 5*24 + 1*10) ;
+  displayMessage("SYSLOG: ", 4, 10 + 4*24) ;
+  displayMessage((char *)e_syslogserver, 4 + 128, 10 + 4*24) ;   
 
-  displayMessage("set the mode link to 'normal' when", 4, 10 + 5*24 + 3*10) ;
-  displayMessage("completed.", 4, 10 + 5*24 + 4*10) ;
+  setTextSize(1) ;
+  displayMessage("Connect to Config Access Point above", 4, 10 + 6*24 + 0*10) ;
+  displayMessage("and open your browser.", 4, 10 + 6*24 + 1*10) ;
+
+  displayMessage("set the mode link to 'normal' when", 4, 10 + 6*24 + 3*10) ;
+  displayMessage("completed.", 4, 10 + 6*24 + 4*10) ;
 
 
 }
