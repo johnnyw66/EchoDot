@@ -191,10 +191,10 @@ void setup() {
     }
    
    //syslog = new Syslog(udpClient, DEFAULT_SYSLOG_SERVER, SYSLOG_PORT, DEVICE_HOSTNAME, APP_NAME, LOG_KERN);
-   syslog = new Syslog(udpClient, e_syslogserver, SYSLOG_PORT, DEVICE_HOSTNAME, APP_NAME, LOG_KERN);
-
+    syslog = new Syslog(udpClient, e_syslogserver, SYSLOG_PORT, DEVICE_HOSTNAME, APP_NAME, LOG_KERN);
     Serial.print("Syslog Server : ") ;
     Serial.println(e_syslogserver) ;
+    Serial.printf("Syslog Server %s, Object address: %p\n", e_syslogserver, syslog);
 
     initDisplay(DEFAULT_ROTATION,BACKLIGHT_PIN) ;
         
@@ -208,7 +208,7 @@ void setup() {
       setupFauxmoMode() ;
     }
 
-   testText() ; 
+   logo() ; 
    delay(3000) ;
 
 }

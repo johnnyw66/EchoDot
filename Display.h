@@ -11,7 +11,7 @@
 #define TFT_RST     12      // YELLOW
 
 void initDisplay(int rotation,int bl) ;
-unsigned long testText(void) ;
+void logo() ;
 
 void statusmessage(char *str) ;
 void setBackLight(int val) ;
@@ -19,6 +19,7 @@ void displayMessage(char *str, int x, int y) ;
 void displayMessage(char *str, int x, int y, int col) ;
 void setTextSize(int sz) ;
 void displayClear() ;
+
 
 // Ada Fruit  TFT/SD ILI9340C Board Pins Order
 //Left to Right Looking Down on Display
